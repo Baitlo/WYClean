@@ -174,11 +174,7 @@ final class GlobalHotkeyManager {
     }
 
     private func postStatus(_ message: String) {
-        if let onStatusMessage {
-            onStatusMessage(message)
-        } else {
-            NSLog("[GlobalHotkeyManager] %@", message)
-        }
+        onStatusMessage?(message)
     }
 
     private static func fourCharCode(_ string: String) -> OSType {
