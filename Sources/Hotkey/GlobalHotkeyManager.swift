@@ -1,35 +1,22 @@
 import AppKit
 import Carbon.HIToolbox
-import Foundation
+import ApplicationServices
 
 final class GlobalHotkeyManager {
-    struct CleaningOptions {
-        var autoRemoveLineBreaks: Bool = true
-        var preserveEnglishWordSpacing: Bool = true
-    }
-
     static let shared = GlobalHotkeyManager()
 
-    /// 菜单栏可绑定此回调用于展示状态消息；默认使用日志输出。
     var onStatusMessage: ((String) -> Void)?
-    var options = CleaningOptions()
+    var isEnabled = true
 
     private let hotkeyID = EventHotKeyID(signature: GlobalHotkeyManager.fourCharCode("WYCL"), id: 1)
     private var hotkeyRef: EventHotKeyRef?
     private var hotkeyEventHandler: EventHandlerRef?
 
-    private let copyDelay: TimeInterval = 0.12
-    private let debounceInterval: TimeInterval = 0.35
+    private let debounceInterval: TimeInterval = 0.3
+    private let pollInterval: TimeInterval = 0.1
+    private let maxPollAttempts = 15
     private var lastTriggerTime: Date = .distantPast
     private var isProcessing = false
-
-    private let cleaner: (String, CleaningOptions) -> String
-
-    init(cleaner: @escaping (String, CleaningOptions) -> String = { text, options in
-        TextCleaningService.clean(text, options: options)
-    }) {
-        self.cleaner = cleaner
-    }
 
     deinit {
         stopListening()
@@ -39,7 +26,6 @@ final class GlobalHotkeyManager {
         guard hotkeyRef == nil else { return }
 
         var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-
         let eventInstallStatus = InstallEventHandler(
             GetApplicationEventTarget(),
             { _, eventRef, userData in
@@ -59,7 +45,6 @@ final class GlobalHotkeyManager {
             return
         }
 
-        // Option + C
         let registerStatus = RegisterEventHotKey(
             UInt32(kVK_ANSI_C),
             UInt32(optionKey),
@@ -89,15 +74,18 @@ final class GlobalHotkeyManager {
     }
 
     private func handleHotKeyEvent(_ eventRef: EventRef?) {
+        guard isEnabled else {
+            postStatus("清洗功能已关闭")
+            return
+        }
+
         guard !isProcessing else {
-            postStatus("正在处理上一次复制内容，请稍候")
+            postStatus("正在处理上一次复制，请稍候")
             return
         }
 
         let now = Date()
-        guard now.timeIntervalSince(lastTriggerTime) >= debounceInterval else {
-            return
-        }
+        guard now.timeIntervalSince(lastTriggerTime) >= debounceInterval else { return }
 
         var incomingHotKeyID = EventHotKeyID()
         let status = GetEventParameter(
@@ -110,18 +98,46 @@ final class GlobalHotkeyManager {
             &incomingHotKeyID
         )
 
-        guard status == noErr, incomingHotKeyID.id == hotkeyID.id, incomingHotKeyID.signature == hotkeyID.signature else {
+        guard status == noErr,
+              incomingHotKeyID.id == hotkeyID.id,
+              incomingHotKeyID.signature == hotkeyID.signature else {
+            return
+        }
+
+        guard AXIsProcessTrusted() else {
+            postStatus("请先在系统设置中授予 WYClean 辅助功能权限")
             return
         }
 
         isProcessing = true
         lastTriggerTime = now
 
-        simulateSystemCopy()
+        let pasteboard = NSPasteboard.general
+        let previousChangeCount = pasteboard.changeCount
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + copyDelay) { [weak self] in
-            self?.processClipboardText()
-            self?.isProcessing = false
+        simulateSystemCopy()
+        waitForClipboardUpdate(previousChangeCount: previousChangeCount, attemptsLeft: maxPollAttempts)
+    }
+
+    private func waitForClipboardUpdate(previousChangeCount: Int, attemptsLeft: Int) {
+        let pasteboard = NSPasteboard.general
+
+        if pasteboard.changeCount != previousChangeCount,
+           let rawText = pasteboard.string(forType: .string),
+           !rawText.isEmpty {
+            processClipboardText(rawText)
+            isProcessing = false
+            return
+        }
+
+        guard attemptsLeft > 0 else {
+            postStatus("未检测到新的复制内容，请确认目标应用支持 ⌘C")
+            isProcessing = false
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
+            self?.waitForClipboardUpdate(previousChangeCount: previousChangeCount, attemptsLeft: attemptsLeft - 1)
         }
     }
 
@@ -130,39 +146,30 @@ final class GlobalHotkeyManager {
               let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: false)
         else {
-            postStatus("无法模拟 ⌘C，请检查权限")
+            postStatus("无法模拟 ⌘C，请检查辅助功能权限")
             return
         }
 
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
-
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
     }
 
-    private func processClipboardText() {
+    private func processClipboardText(_ rawText: String) {
         let pasteboard = NSPasteboard.general
-
-        guard let rawText = pasteboard.string(forType: .string), !rawText.isEmpty else {
-            postStatus("剪贴板中没有可处理文本，已跳过")
-            return
-        }
-
-        let cleanedText = cleaner(rawText, options)
+        let cleanedText = TextCleaningService().clean(rawText)
 
         guard !cleanedText.isEmpty else {
-            postStatus("清洗结果为空，保留原剪贴板内容")
+            postStatus("清洗结果为空，保留原剪贴板")
             return
         }
 
         pasteboard.clearContents()
-        let didWrite = pasteboard.setString(cleanedText, forType: .string)
-
-        if didWrite {
-            postStatus("文本已清洗并写回剪贴板")
+        if pasteboard.setString(cleanedText, forType: .string) {
+            postStatus("已复制并清洗，可直接 ⌘V 粘贴")
         } else {
-            postStatus("写入剪贴板失败，可能被系统拒绝")
+            postStatus("写入剪贴板失败")
         }
     }
 
@@ -176,29 +183,5 @@ final class GlobalHotkeyManager {
 
     private static func fourCharCode(_ string: String) -> OSType {
         string.utf8.reduce(0) { ($0 << 8) + OSType($1) }
-    }
-}
-
-enum TextCleaningService {
-    static func clean(_ text: String, options: GlobalHotkeyManager.CleaningOptions) -> String {
-        var output = text
-
-        if options.autoRemoveLineBreaks {
-            output = output
-                .replacingOccurrences(of: "\r\n", with: "\n")
-                .replacingOccurrences(of: "\n", with: " ")
-        }
-
-        output = output.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-
-        if !options.preserveEnglishWordSpacing {
-            output = output.replacingOccurrences(
-                of: #"(?<=[A-Za-z])\s+(?=[A-Za-z])"#,
-                with: "",
-                options: .regularExpression
-            )
-        }
-
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

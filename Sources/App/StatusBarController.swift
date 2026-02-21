@@ -3,12 +3,21 @@ import AppKit
 final class StatusBarController {
     private let statusItem: NSStatusItem
     private var isCleaningEnabled = true {
-        didSet { updateToggleMenuItemTitle() }
+        didSet {
+            updateToggleMenuItemTitle()
+            GlobalHotkeyManager.shared.isEnabled = isCleaningEnabled
+        }
     }
 
     private lazy var toggleMenuItem: NSMenuItem = {
         let item = NSMenuItem(title: "关闭清洗", action: #selector(toggleCleaning), keyEquivalent: "")
         item.target = self
+        return item
+    }()
+
+    private lazy var statusMenuItem: NSMenuItem = {
+        let item = NSMenuItem(title: "状态：待命", action: nil, keyEquivalent: "")
+        item.isEnabled = false
         return item
     }()
 
@@ -18,13 +27,21 @@ final class StatusBarController {
         configureMenu()
     }
 
+    func updateStatus(_ status: String) {
+        DispatchQueue.main.async {
+            self.statusMenuItem.title = "状态：\(status)"
+        }
+    }
+
     private func configureStatusButton() {
         statusItem.button?.title = "WYClean"
-        statusItem.button?.toolTip = "WYClean 菜单"
+        statusItem.button?.toolTip = "WYClean 已在后台运行"
     }
 
     private func configureMenu() {
         let menu = NSMenu()
+        menu.addItem(statusMenuItem)
+        menu.addItem(.separator())
         menu.addItem(toggleMenuItem)
         menu.addItem(.separator())
 
@@ -41,6 +58,7 @@ final class StatusBarController {
 
     @objc private func toggleCleaning() {
         isCleaningEnabled.toggle()
+        updateStatus(isCleaningEnabled ? "清洗功能已开启" : "清洗功能已关闭")
     }
 
     @objc private func quitApplication() {

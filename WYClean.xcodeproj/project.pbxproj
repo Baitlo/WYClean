@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		A10000010000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000110000000000000001 /* AppDelegate.swift */; };
 		A10000020000000000000001 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000120000000000000001 /* StatusBarController.swift */; };
+		A10000030000000000000001 /* TextCleaningService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000150000000000000001 /* TextCleaningService.swift */; };
+		A10000040000000000000001 /* GlobalHotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000160000000000000001 /* GlobalHotkeyManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -16,6 +18,8 @@
 		A10000120000000000000001 /* StatusBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarController.swift; sourceTree = "<group>"; };
 		A10000130000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Config/Info.plist; sourceTree = SOURCE_ROOT; };
 		A10000140000000000000001 /* WYClean.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WYClean.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000150000000000000001 /* TextCleaningService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextCleaningService.swift; sourceTree = "<group>"; };
+		A10000160000000000000001 /* GlobalHotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +74,7 @@
 			path = Core;
 			sourceTree = "<group>";
 			children = (
+				A10000150000000000000001 /* TextCleaningService.swift */,
 			);
 		};
 		A10000350000000000000001 /* Hotkey */ = {
@@ -77,6 +82,7 @@
 			path = Hotkey;
 			sourceTree = "<group>";
 			children = (
+				A10000160000000000000001 /* GlobalHotkeyManager.swift */,
 			);
 		};
 /* End PBXGroup section */
@@ -138,6 +144,8 @@
 			files = (
 				A10000010000000000000001 /* AppDelegate.swift in Sources */,
 				A10000020000000000000001 /* StatusBarController.swift in Sources */,
+				A10000030000000000000001 /* TextCleaningService.swift in Sources */,
+				A10000040000000000000001 /* GlobalHotkeyManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
