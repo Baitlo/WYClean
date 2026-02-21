@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import ApplicationServices
 
 final class GlobalHotkeyManager {
     static let shared = GlobalHotkeyManager()
@@ -11,8 +12,9 @@ final class GlobalHotkeyManager {
     private var hotkeyRef: EventHotKeyRef?
     private var hotkeyEventHandler: EventHandlerRef?
 
-    private let copyDelay: TimeInterval = 0.12
     private let debounceInterval: TimeInterval = 0.3
+    private let pollInterval: TimeInterval = 0.1
+    private let maxPollAttempts = 15
     private var lastTriggerTime: Date = .distantPast
     private var isProcessing = false
 
@@ -43,7 +45,14 @@ final class GlobalHotkeyManager {
             return
         }
 
-        let registerStatus = RegisterEventHotKey(UInt32(kVK_ANSI_C), UInt32(optionKey), hotkeyID, GetApplicationEventTarget(), 0, &hotkeyRef)
+        let registerStatus = RegisterEventHotKey(
+            UInt32(kVK_ANSI_C),
+            UInt32(optionKey),
+            hotkeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotkeyRef
+        )
 
         if registerStatus == noErr {
             postStatus("快捷键已启用：⌥C")
@@ -70,22 +79,65 @@ final class GlobalHotkeyManager {
             return
         }
 
-        guard !isProcessing else { return }
+        guard !isProcessing else {
+            postStatus("正在处理上一次复制，请稍候")
+            return
+        }
 
         let now = Date()
         guard now.timeIntervalSince(lastTriggerTime) >= debounceInterval else { return }
 
         var incomingHotKeyID = EventHotKeyID()
-        let status = GetEventParameter(eventRef, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &incomingHotKeyID)
-        guard status == noErr, incomingHotKeyID.id == hotkeyID.id, incomingHotKeyID.signature == hotkeyID.signature else { return }
+        let status = GetEventParameter(
+            eventRef,
+            EventParamName(kEventParamDirectObject),
+            EventParamType(typeEventHotKeyID),
+            nil,
+            MemoryLayout<EventHotKeyID>.size,
+            nil,
+            &incomingHotKeyID
+        )
+
+        guard status == noErr,
+              incomingHotKeyID.id == hotkeyID.id,
+              incomingHotKeyID.signature == hotkeyID.signature else {
+            return
+        }
+
+        guard AXIsProcessTrusted() else {
+            postStatus("请先在系统设置中授予 WYClean 辅助功能权限")
+            return
+        }
 
         isProcessing = true
         lastTriggerTime = now
-        simulateSystemCopy()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + copyDelay) { [weak self] in
-            self?.processClipboardText()
-            self?.isProcessing = false
+        let pasteboard = NSPasteboard.general
+        let previousChangeCount = pasteboard.changeCount
+
+        simulateSystemCopy()
+        waitForClipboardUpdate(previousChangeCount: previousChangeCount, attemptsLeft: maxPollAttempts)
+    }
+
+    private func waitForClipboardUpdate(previousChangeCount: Int, attemptsLeft: Int) {
+        let pasteboard = NSPasteboard.general
+
+        if pasteboard.changeCount != previousChangeCount,
+           let rawText = pasteboard.string(forType: .string),
+           !rawText.isEmpty {
+            processClipboardText(rawText)
+            isProcessing = false
+            return
+        }
+
+        guard attemptsLeft > 0 else {
+            postStatus("未检测到新的复制内容，请确认目标应用支持 ⌘C")
+            isProcessing = false
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) { [weak self] in
+            self?.waitForClipboardUpdate(previousChangeCount: previousChangeCount, attemptsLeft: attemptsLeft - 1)
         }
     }
 
@@ -104,12 +156,14 @@ final class GlobalHotkeyManager {
         keyUp.post(tap: .cghidEventTap)
     }
 
-    private func processClipboardText() {
+    private func processClipboardText(_ rawText: String) {
         let pasteboard = NSPasteboard.general
-        guard let rawText = pasteboard.string(forType: .string), !rawText.isEmpty else { return }
-
         let cleanedText = TextCleaningService().clean(rawText)
-        guard !cleanedText.isEmpty else { return }
+
+        guard !cleanedText.isEmpty else {
+            postStatus("清洗结果为空，保留原剪贴板")
+            return
+        }
 
         pasteboard.clearContents()
         if pasteboard.setString(cleanedText, forType: .string) {
