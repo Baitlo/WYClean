@@ -30,6 +30,24 @@
 
 生成结果：`build/WYClean-installer.pkg`
 
+可选：使用 Developer ID 证书签名（推荐，能减少“安装器遇到一个错误”这类泛化报错）：
+
+```bash
+export APP_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export INSTALLER_SIGN_IDENTITY="Developer ID Installer: Your Name (TEAMID)"
+./scripts/build_installer.sh
+```
+
+> 若出现 `xcode-select ... CommandLineTools` 错误，说明当前只启用了命令行工具而非完整 Xcode。请先执行：
+> `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`
+
+若安装时出现“安装器遇到一个错误”，请优先排查：
+
+1. 当前 pkg 是否未签名或签名无效（脚本会输出 `pkgutil --check-signature` 结果）
+2. `/Applications/WYClean.app` 是否已存在且正在运行（先退出并删除旧版本再安装）
+3. 查看安装日志：打开“控制台”并筛选 `installer`，或命令行执行：
+   `log show --predicate 'subsystem == "com.apple.installer"' --last 10m`
+
 ## 文本清洗策略文档
 
 - 规则对照与迁移说明见：[`docs/cleaning-rules.md`](docs/cleaning-rules.md)
