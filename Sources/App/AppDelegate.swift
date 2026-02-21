@@ -12,6 +12,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showPasteboardUsageNoticeIfNeeded()
 
         statusBarController = StatusBarController()
+
+        GlobalHotkeyManager.shared.onStatusMessage = { [weak self] message in
+            self?.statusBarController?.updateStatus(message)
+        }
+        GlobalHotkeyManager.shared.startListening()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        GlobalHotkeyManager.shared.stopListening()
     }
 
     private func requestAccessibilityPermissionIfNeeded() {
@@ -25,8 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "需要剪贴板访问说明"
-        alert.informativeText = "WYClean 会读取剪贴板内容用于后续文本清洗功能。应用不会在未触发清洗时主动上传你的剪贴板内容。"
+        alert.messageText = "首次使用说明"
+        alert.informativeText = "请在任意应用中选中 PDF 文本后按 ⌥C，WYClean 会先执行复制，再自动清洗文本并回写剪贴板。"
         alert.addButton(withTitle: "我知道了")
         alert.runModal()
 

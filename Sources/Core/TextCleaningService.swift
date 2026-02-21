@@ -1,31 +1,40 @@
 import Foundation
 
+struct CleaningOptions {
+    var removeLineBreaks: Bool = true
+}
+
 public struct TextCleaningService {
-    public init() {}
+    private let options: CleaningOptions
+
+    init(options: CleaningOptions = CleaningOptions()) {
+        self.options = options
+    }
 
     public func clean(_ input: String) -> String {
         var result = input
         result = removeCitations(from: result)
-        result = normalizeLineBreaks(in: result)
-        result = compressWhitespace(in: result)
         result = normalizeWidth(in: result)
+        if options.removeLineBreaks {
+            result = normalizeLineBreaks(in: result)
+        }
+        result = compressWhitespace(in: result)
         result = normalizeChinesePunctuation(in: result)
-        result = fixCJKSpacing(in: result)
+        result = removeSpacesBetweenNonEnglishCharacters(in: result)
+        result = cleanupPunctuationSpacing(in: result)
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func removeCitations(from text: String) -> String {
-        var result = text
         let patterns = [
-            #"\[\s*\d+\s*(?:-\s*\d+\s*)?\]"#,
-            #"\(\s*\d+\s*(?:-\s*\d+\s*)?(?:,\s*\d+\s*(?:-\s*\d+\s*)?)*\)"#
+            #"\[\s*\d+\s*(?:[-–]\s*\d+\s*)?\]"#,
+            #"\[\s*\d+(?:\s*,\s*\d+)+\s*\]"#,
+            #"[（(]\s*\d+(?:\s*[-–]\s*\d+)?(?:\s*[,，]\s*\d+(?:\s*[-–]\s*\d+)?)*\s*[）)]"#
         ]
 
-        for pattern in patterns {
-            result = result.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        return patterns.reduce(text) { partial, pattern in
+            partial.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
         }
-
-        return result
     }
 
     private func normalizeLineBreaks(in text: String) -> String {
@@ -34,6 +43,7 @@ public struct TextCleaningService {
 
     private func compressWhitespace(in text: String) -> String {
         var result = text.replacingOccurrences(of: "\t", with: " ")
+        result = result.replacingOccurrences(of: "\u{3000}", with: " ")
         result = result.replacingOccurrences(of: #"[ ]{2,}"#, with: " ", options: .regularExpression)
         return result
     }
@@ -52,8 +62,7 @@ public struct TextCleaningService {
 
     private func normalizeChinesePunctuation(in text: String) -> String {
         let punctuationMap: [Character: Character] = [
-            ",": "，", ".": "。", ";": "；", ":": "：", "?": "？", "!": "！",
-            "(": "（", ")": "）", "[": "【", "]": "】"
+            ",": "，", ".": "。", ";": "；", ":": "：", "?": "？", "!": "！"
         ]
 
         let chars = Array(text)
@@ -78,36 +87,15 @@ public struct TextCleaningService {
         return output
     }
 
-    private func fixCJKSpacing(in text: String) -> String {
-        var result = text
-        result = result.replacingOccurrences(of: #"\s*([，。；：？！、）】》」』])\s*"#, with: "$1", options: .regularExpression)
-        result = result.replacingOccurrences(of: #"\s*([（【《「『])\s*"#, with: "$1", options: .regularExpression)
-        result = result.replacingOccurrences(of: #"(?<=[\p{Han}])\s+(?=[\p{Han}])"#, with: "", options: .regularExpression)
-        result = removeUppercaseAcronymSpacingBeforeCJK(in: result)
-        return result
+    private func removeSpacesBetweenNonEnglishCharacters(in text: String) -> String {
+        text.replacingOccurrences(of: #"(?<=[^A-Za-z\s])\s+(?=[^A-Za-z\s])"#, with: "", options: .regularExpression)
     }
 
-    private func removeUppercaseAcronymSpacingBeforeCJK(in text: String) -> String {
-        let chars = Array(text)
-        var output = String()
-        var index = 0
-
-        while index < chars.count {
-            let current = chars[index]
-            if current.isWhitespace,
-               let previous = output.last,
-               isUppercaseASCIIOrDigit(previous),
-               index + 1 < chars.count,
-               containsCJK(chars[index + 1]) {
-                index += 1
-                continue
-            }
-
-            output.append(current)
-            index += 1
-        }
-
-        return output
+    private func cleanupPunctuationSpacing(in text: String) -> String {
+        var result = text
+        result = result.replacingOccurrences(of: #"\s*([，。；：？！、])\s*"#, with: "$1", options: .regularExpression)
+        result = result.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+        return result
     }
 
     private func nearestNonWhitespaceCharacter(in chars: [Character], from index: Int, direction: Int) -> Character? {
@@ -119,11 +107,6 @@ public struct TextCleaningService {
             cursor += direction
         }
         return nil
-    }
-
-    private func isUppercaseASCIIOrDigit(_ character: Character) -> Bool {
-        guard let scalar = character.unicodeScalars.first else { return false }
-        return (0x30...0x39).contains(scalar.value) || (0x41...0x5A).contains(scalar.value)
     }
 
     private func containsCJK(_ character: Character?) -> Bool {
